@@ -12,10 +12,20 @@ import joblib
 
 
 def download_data():
-    url = "https://github.com/Scom19/MLOPS_course/raw/main/Titanic.xls"
-
+    """Загрузка данных Titanic с Kaggle"""
     try:
-        df = pd.read_excel(url, engine='openpyxl')
+        # Скачивание датасета
+        dataset_path = kagglehub.dataset_download("scom19/titanic")
+        print(f"Dataset downloaded to: {dataset_path}")
+        for root, dirs, files in os.walk(dataset_path):
+            for file in files:
+                if file.endswith('.csv'):
+                    data_file = os.path.join(root, file)
+                    break
+
+        # Чтение данных
+        df = pd.read_csv(data_file)
+        os.makedirs("/opt/airflow/data", exist_ok=True)
         df.to_csv("/opt/airflow/data/raw_titanic.csv", index=False)
         print(f"Данные загружены. Размер: {df.shape}")
         return df.to_dict()
