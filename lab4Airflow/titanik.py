@@ -11,26 +11,31 @@ from sklearn.pipeline import Pipeline
 import joblib
 
 
-def download_data():
-    """Загрузка данных Titanic с Kaggle"""
-    try:
-        # Скачивание датасета
-        dataset_path = kagglehub.dataset_download("scom19/titanic")
-        print(f"Dataset downloaded to: {dataset_path}")
-        for root, dirs, files in os.walk(dataset_path):
-            for file in files:
-                if file.endswith('.csv'):
-                    data_file = os.path.join(root, file)
-                    break
 
-        # Чтение данных
-        df = pd.read_csv(data_file)
+def download_data():
+    """Загрузка данных Titanic в Airflow"""
+    try:
+        # Определяем путь к файлу внутри контейнера Airflow
+        dag_dir = Path(__file__).parent.absolute()  # Директория DAG
+        data_path = dag_dir / "titanic.xls"  # Путь к файлу
+        
+        # Проверка существования файла
+        if not data_path.exists():
+            raise FileNotFoundError(f"Файл {data_path} не найден")
+        
+        # Чтение данных (для Excel используем openpyxl)
+        df = pd.read_excel(data_path, engine='openpyxl')
+        
+        # Сохранение в data-директорию Airflow
         os.makedirs("/opt/airflow/data", exist_ok=True)
-        df.to_csv("/opt/airflow/data/raw_titanic.csv", index=False)
-        print(f"Данные загружены. Размер: {df.shape}")
+        output_path = "/opt/airflow/data/raw_titanic.csv"
+        df.to_csv(output_path, index=False)
+        
+        print(f"Данные успешно загружены. Размер: {df.shape}")
         return df.to_dict()
+    
     except Exception as e:
-        print(f"Ошибка загрузки: {str(e)}")
+        print(f"Критическая ошибка: {str(e)}")
         raise
 
 
@@ -115,7 +120,7 @@ with DAG(
         'titanic_ml_pipeline',
         default_args=default_args,
         description='Полный пайплайн обработки Titanic',
-        schedule_interval='@weekly',
+        schedule='@weekly',
         catchup=False,
         max_active_runs=1
 ) as dag:
