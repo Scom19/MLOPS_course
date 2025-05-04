@@ -59,6 +59,16 @@ def clear_data(**kwargs):
     return df.to_dict()
 
 
+import mlflow
+from mlflow.models import infer_signature
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import pandas as pd
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+import joblib
+
 def train_model(**kwargs):
     ti = kwargs['ti']
     data_dict = ti.xcom_pull(task_ids='clean_titanic_data')
@@ -68,42 +78,71 @@ def train_model(**kwargs):
     X = df.drop('Survived', axis=1)
     y = df['Survived']
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    # Создание пайплайна
-    pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('classifier', RandomForestClassifier(
-            n_estimators=100,
-            max_depth=5,
-            random_state=42
-        ))
-    ])
+    # Настройка MLflow
+    mlflow.set_experiment("Titanic_Survival_Prediction")
+    
+    with mlflow.start_run():
+        # Создание и обучение пайплайна
+        pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('classifier', RandomForestClassifier(
+                n_estimators=100,
+                max_depth=5,
+                random_state=42
+            ))
+        ])
+        
+        pipeline.fit(X_train, y_train)
 
-    # Обучение модели
-    pipeline.fit(X_train, y_train)
+        # Предсказания и метрики
+        y_pred = pipeline.predict(X_test)
+        accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred)
+        recall = recall_score(y_test, y_pred)
+        f1 = f1_score(y_test, y_pred)
 
-    # Предсказания и метрики
-    y_pred = pipeline.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred)
-    recall = recall_score(y_test, y_pred)
+        # Логирование параметров
+        mlflow.log_params({
+            'model_type': 'RandomForest',
+            'n_estimators': 100,
+            'max_depth': 5,
+            'random_state': 42,
+            'test_size': 0.2
+        })
 
-    print(f"Accuracy: {accuracy:.2f}")
-    print(f"Precision: {precision:.2f}")
-    print(f"Recall: {recall:.2f}")
+        # Логирование метрик
+        mlflow.log_metrics({
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1
+        })
 
-    # Сохранение модели
-    joblib.dump(pipeline, '/opt/airflow/models/titanic_model.pkl')
+        # Логирование модели
+        signature = infer_signature(X_train, pipeline.predict(X_train))
+        mlflow.sklearn.log_model(
+            sk_model=pipeline,
+            artifact_path="titanic_model",
+            signature=signature,
+            registered_model_name="titanic_rf_model"
+        )
 
-    # Сохранение метрик
-    metrics = {
-        'accuracy': accuracy,
-        'precision': precision,
-        'recall': recall
-    }
-    return metrics
+        # Сохранение модели локально (дополнительно)
+        model_path = "/opt/airflow/models/titanic_model.pkl"
+        joblib.dump(pipeline, model_path)
+        mlflow.log_artifact(model_path)
+
+        print(f"Модель сохранена. Метрики: Accuracy={accuracy:.2f}, Precision={precision:.2f}")
+
+        return {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'f1_score': f1
+        }
 
 # Настройка DAG
 default_args = {
